@@ -1,0 +1,17 @@
+[package]
+name = "mailbox-local"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
+chrono = "0.4"
+futures = "0.3"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "net"] }
+url = "2"

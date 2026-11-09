@@ -1,0 +1,71 @@
+/* Live composer: one writing surface, persistent actions, existing Aurora tokens. */
+.aurora-app .au-compose-window{position:fixed;inset:auto 24px 20px auto;z-index:25;display:flex;flex-direction:column;width:min(660px,calc(100vw - 32px));height:min(740px,calc(100dvh - 100px));min-height:0;border:1px solid var(--au-border);border-radius:16px;background:var(--au-panel);box-shadow:0 24px 80px #0006;overflow:hidden;transform:none;animation:none;opacity:1;transition:opacity 140ms,translate 140ms,display 140ms allow-discrete;translate:0 0;will-change:auto}
+.aurora-app .au-compose-window[hidden]{display:none;opacity:0;translate:0 8px}
+@starting-style{.aurora-app .au-compose-window:not([hidden]){opacity:0;translate:0 8px}}
+.aurora-app .au-compose-window.is-expanded{inset:32px 32px 32px auto;width:min(1000px,calc(100vw - 64px));height:calc(100dvh - 64px)}
+.aurora-app .au-compose-window.is-minimized{inset:auto 24px 20px auto;width:min(340px,calc(100vw - 32px));height:52px}
+.au-compose-window [hidden]{display:none!important}
+.aurora-app .au-compose-title{flex:none;height:52px;min-height:52px;padding:0 18px;background:var(--au-card);border-bottom:1px solid var(--au-border);gap:12px}
+.aurora-app .au-compose-title strong{font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aurora-app .au-compose-title>div{gap:4px;flex:none}
+.aurora-app .au-compose-title button{width:32px;height:32px;color:var(--au-muted)!important}
+.aurora-app .au-compose-title button:hover{background:var(--au-panel)!important;color:var(--au-text)!important}
+.au-compose-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.aurora-app .au-compose-fields{display:grid;flex:none;gap:0;border:0;padding:8px 22px 0;margin:0;min-width:0}
+.aurora-app .au-compose-fields label{display:flex;align-items:center;gap:12px;color:var(--au-muted);font-size:12px;min-height:44px;border-bottom:1px solid var(--au-border)}
+.aurora-app .au-compose-fields input{flex:1;min-width:0;border:0;border-radius:0;background:transparent;padding:12px 0;color:var(--au-text);font-size:13px;box-shadow:none}
+.aurora-app .au-compose-fields input::placeholder{color:var(--au-muted);opacity:.65}
+.au-compose-to-row{display:flex;align-items:center;gap:8px}
+.au-compose-to-row label{flex:1;min-width:0}
+.au-compose-optional{display:flex;gap:4px}
+.au-compose-optional button{padding:7px 5px;color:var(--au-muted);font-size:11px;border-radius:6px}
+.au-compose-optional button[aria-expanded=true]{background:color-mix(in srgb,var(--au-accent) 12%,transparent);color:var(--au-accent)}
+.au-compose-window .au-sender-field{padding:0 0 8px}
+.aurora-app .au-compose-body{display:block;flex:1 0 180px;width:100%;min-height:180px;resize:none;padding:22px;background:transparent;color:var(--au-text);font:400 14px/1.75 'DM Sans',sans-serif;border:0;outline-offset:-4px}
+.aurora-app .au-compose-body::placeholder{color:var(--au-muted);opacity:.7}
+.au-compose-window [aria-invalid=true]{outline:1px solid #de7c89;outline-offset:-2px;border-radius:4px!important}
+.au-compose-error{display:block;color:#de7c89;font-size:11px;padding:5px 0;overflow-wrap:anywhere}
+.au-compose-attachments{flex:none;padding:12px 22px 16px;border-top:1px dashed var(--au-border);transition:background 140ms,border-color 140ms}
+.au-compose-attachments.is-dragging{background:color-mix(in srgb,var(--au-accent) 12%,transparent);border-color:var(--au-accent);outline:2px solid var(--au-accent);outline-offset:-3px}
+.au-compose-attachments>small{display:block;color:var(--au-muted);font-size:11px;line-height:1.6}
+.au-compose-attachments>small:last-child{font-size:10px;opacity:.8}
+.au-compose-file-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.au-compose-file-grid:not(:empty){margin-bottom:12px}
+.au-compose-file{display:flex;align-items:center;gap:9px;min-width:0;padding:10px 8px 10px 10px;border:1px solid var(--au-border);border-radius:11px;background:var(--au-card);animation:compose-file-in 160ms ease-out;transition:opacity 140ms,transform 140ms}
+.au-compose-file.is-removing{opacity:0;transform:scale(.96)}
+.au-compose-file-icon{display:flex;align-items:center;justify-content:center;width:36px;height:42px;flex:none;border-radius:7px;background:var(--au-panel);color:var(--au-muted);overflow:hidden}
+.au-compose-file-icon.is-pdf{background:#d4516217;color:#e38d98}
+.au-compose-file-icon img{width:100%;height:100%;object-fit:cover}
+.au-compose-file-info{flex:1;min-width:0}
+.au-compose-file-info strong{display:block;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:550}
+.au-compose-file-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:1.7;color:var(--au-muted)}
+.au-compose-file>button{flex:none;align-self:flex-start;padding:4px;border-radius:5px;color:var(--au-muted)}
+.au-compose-file>button:hover{color:var(--au-text);background:var(--au-panel)}
+.au-compose-bottom-area{flex:none;border-top:1px solid var(--au-border);background:var(--au-panel)}
+.au-compose-feedback{margin:0;padding:8px 22px 0;min-height:23px;font-size:10px;line-height:1.5;color:var(--au-muted);overflow-wrap:anywhere}
+.aurora-app .au-compose-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 18px 16px}
+.aurora-app .au-compose-actions .au-btn{height:38px;min-height:38px;border-radius:9px!important;gap:7px;white-space:nowrap}
+.aurora-app .au-compose-actions .au-btn-primary{padding-inline:20px!important;background:var(--au-accent)!important;color:#211c32!important}
+.au-compose-actions .au-compose-attach,.au-compose-actions .au-compose-draft{color:var(--au-muted)!important;background:transparent}
+.au-compose-window button:focus-visible,.au-compose-window input:focus-visible,.au-compose-window textarea:focus-visible{outline:2px solid var(--au-accent)!important;outline-offset:2px}
+.au-compose-window button:disabled{opacity:.45;cursor:not-allowed}
+.aurora-app:has(.au-compose-window:not([hidden])) .au-real-error{z-index:27;bottom:100px;max-width:min(400px,calc(100vw - 32px))}
+.aurora-app:has(.au-compose-window:not([hidden])) .au-toast{z-index:28}
+@keyframes compose-file-in{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}
+@media(max-width:1110px) and (min-width:661px){.aurora-app .au-compose-window{right:16px;bottom:16px;height:min(740px,calc(100dvh - 90px))}}
+@media(max-width:660px){
+ .aurora-app .au-compose-window,.aurora-app .au-compose-window.is-expanded{inset:var(--compose-top,0px) 0 auto;width:100%;height:var(--compose-height,100dvh);max-height:100dvh;border:0;border-radius:0;z-index:25;box-shadow:none}
+ .aurora-app .au-compose-window.is-minimized{inset:auto 12px 76px auto;width:calc(100% - 24px);height:52px;border:1px solid var(--au-border);border-radius:12px}
+ .aurora-app .au-compose-title{padding:env(safe-area-inset-top) 12px 0;height:calc(52px + env(safe-area-inset-top));min-height:calc(52px + env(safe-area-inset-top))}
+ .aurora-app .au-compose-fields{padding-inline:16px}
+ .aurora-app .au-compose-fields input,.aurora-app .au-compose-body{font-size:16px}
+ .aurora-app .au-compose-body{padding:18px 16px;flex-basis:150px;min-height:150px}
+ .au-compose-attachments{padding:12px 16px}
+ .au-compose-file-grid{grid-template-columns:1fr}
+ .au-compose-feedback{padding-inline:16px}
+ .aurora-app .au-compose-actions{padding:8px 10px calc(10px + env(safe-area-inset-bottom));gap:4px}
+ .aurora-app .au-compose-actions .au-btn{padding:0 9px!important;font-size:11px!important;gap:5px}
+ .aurora-app .au-compose-actions .au-btn-primary{padding-inline:12px!important}
+ .aurora-app:has(.au-compose-window:not([hidden])) .au-real-error{bottom:110px;left:16px}
+}
+@media(prefers-reduced-motion:reduce){.aurora-app .au-compose-window,.au-compose-file,.au-compose-attachments{transition:none;animation:none}}

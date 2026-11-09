@@ -1,0 +1,19 @@
+.au-sender-field{display:flex;align-items:center;gap:12px;min-width:0;color:var(--au-muted);font-size:13px}
+.aurora-app .au-sender-trigger{display:flex;flex:1;min-width:0;gap:10px;min-height:40px;padding:8px 11px;border:1px solid var(--au-border);border-radius:11px;background:var(--au-card);text-align:left;color:var(--au-text);transition:background 140ms,border-color 140ms}
+.aurora-app .au-sender-trigger:hover:not(:disabled){background:color-mix(in srgb,var(--au-accent) 8%,var(--au-card));border-color:color-mix(in srgb,var(--au-accent) 45%,var(--au-border))}
+.au-sender-email{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.au-sender-trigger .au-sender-email{animation:au-sender-selected 180ms ease-out}
+.au-sender-icon{width:27px;height:27px;display:grid;place-items:center;flex:none;border-radius:7px;background:color-mix(in srgb,var(--au-accent) 9%,var(--au-card))}
+.au-sender-chevron{flex:none;color:var(--au-muted);transition:transform 180ms ease}
+.au-sender-chevron[data-open="true"]{transform:rotate(180deg)}
+.au-sender-popup{position:fixed;inset:auto;margin:0;box-sizing:border-box;padding:6px;border:1px solid color-mix(in srgb,var(--au-accent) 25%,var(--au-border));border-radius:13px;background:var(--au-card);color:var(--au-text);box-shadow:0 16px 40px #06080e66;overflow:auto;overscroll-behavior:contain;font-family:inherit;font-size:13px;opacity:0;transform:translateY(-4px);transition:opacity 140ms ease,transform 140ms ease,display 140ms allow-discrete,overlay 140ms allow-discrete}
+.au-sender-popup:popover-open{opacity:1;transform:translateY(0);transition-duration:180ms}
+@starting-style{.au-sender-popup:popover-open{opacity:0;transform:translateY(-6px)}}
+.au-sender-option{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 10px;border-radius:8px;cursor:pointer;transition:background 140ms ease,color 140ms ease}
+.au-sender-option[aria-selected="true"]{background:color-mix(in srgb,var(--au-accent) 15%,var(--au-card));color:var(--au-accent)}
+.au-sender-option.is-active{background:color-mix(in srgb,var(--au-accent) 22%,var(--au-card));outline:1px solid color-mix(in srgb,var(--au-accent) 55%,transparent);outline-offset:-1px}
+.au-sender-connected{flex:none;width:6px;height:6px;background:var(--au-mint);border-radius:50%}
+.au-sender-check{width:16px;flex:none;display:grid;place-items:center;color:var(--au-accent)}
+.au-sender-trigger:focus-visible{outline:2px solid var(--au-accent);outline-offset:2px}
+@keyframes au-sender-selected{from{background:color-mix(in srgb,var(--au-accent) 18%,transparent)}to{background:transparent}}
+@media(prefers-reduced-motion:reduce){.aurora-app .au-sender-trigger,.au-sender-popup,.au-sender-popup:popover-open,.au-sender-option,.au-sender-chevron{transition:none}.au-sender-trigger .au-sender-email{animation:none}}

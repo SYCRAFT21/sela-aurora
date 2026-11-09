@@ -1,0 +1,137 @@
+const assert = require('node:assert/strict');
+const {chromium} = require('playwright');
+// Catches disconnected chooser, replacement uploads, destructive presentation changes and missing recipient validation.
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/brave-browser',headless:true});
+ try {for(const width of [1440,768,390]) {
+  const context=await browser.newContext({viewport:{width,height:900}}), page=await context.newPage();
+  const requests=[]; let status=422, release;
+  await page.route('**/api/**',route=>{
+   const path=new URL(route.request().url()).pathname;
+   if(path==='/api/accounts') return route.fulfill({json:[{id:'one',email:'one@example.test',provider:'google',reconnect:false,gmail_modify:true}]});
+   if(path.startsWith('/api/inbox/')) return route.fulfill({json:{messages:[],errors:[]}});
+   if(path.startsWith('/api/compose/')) {requests.push(route.request());if(status===0)return new Promise(resolve=>{release=()=>resolve(route.fulfill({status:422,body:'Synthetic delayed validation'}));});return route.fulfill({status,body:status===201?'{}':'Synthetic validation'});}
+   return route.fulfill({json:{}});
+  });
+  await page.goto('http://127.0.0.1:4175');
+  if(width>1110) await page.locator('.au-compose-trigger').click();
+  else if(width<=660) await page.locator('.au-mobile-bottom').getByTitle('Tulis email').click();
+  else {await page.locator('.au-topbar-menu').click();await page.locator('.au-compose-trigger').click();}
+  const editor=page.getByRole('region',{name:'Tulis pesan'});
+  const attach=editor.getByRole('button',{name:'Lampirkan file',exact:true});
+  await attach.waitFor({timeout:2000});
+  assert.equal(await editor.locator('input[type=file]').evaluate(el=>el.hidden&&el.multiple),true);
+  await attach.focus();await page.keyboard.press('Tab');await page.keyboard.press('Shift+Tab');
+  assert.equal(await attach.evaluate(el=>getComputedStyle(el).outlineStyle),'solid');
+  let chooser=page.waitForEvent('filechooser'); await attach.click();
+  await (await chooser).setFiles({name:'first.txt',mimeType:'text/plain',buffer:Buffer.from('first bytes')});
+  chooser=page.waitForEvent('filechooser');await attach.focus();await attach.press('Enter');
+  await (await chooser).setFiles({name:'second.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-synthetic')});
+  assert.equal(await editor.locator('.au-compose-file').count(),2);
+  await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles({name:'pixel.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64')});
+  await editor.getByAltText('Pratinjau pixel.png').waitFor();
+  const previewUrl=await editor.getByAltText('Pratinjau pixel.png').getAttribute('src');
+  await editor.getByRole('button',{name:'Hapus pixel.png',exact:true}).click();
+  await page.waitForFunction(()=>!document.querySelector('img[alt="Pratinjau pixel.png"]'));
+  assert.equal(await page.evaluate(async url=>{try{await fetch(url);return false;}catch{return true;}},previewUrl),true,'removed thumbnail URL revoked');
+  const pixel=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles(Array.from({length:5},(_,i)=>({name:`bounded-${i}.png`,mimeType:'image/png',buffer:pixel})));
+  await page.waitForFunction(()=>document.querySelectorAll('.au-compose-file img').length===4);
+  assert.equal(await editor.locator('.au-compose-file img').count(),4,'preview count bounded');
+  for(let i=0;i<5;i++) {await editor.getByRole('button',{name:`Hapus bounded-${i}.png`,exact:true}).click();await page.waitForFunction(n=>document.querySelectorAll('.au-compose-file').length===n,6-i);}
+  const huge=Buffer.from(pixel);huge.writeUInt32BE(3000,16);huge.writeUInt32BE(3000,20);
+  await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles({name:'large-dimensions.png',mimeType:'image/png',buffer:huge});
+  await page.waitForTimeout(100);
+  assert.equal(await editor.locator('.au-compose-file img').count(),0,'9M-pixel compose image not previewed');
+  await editor.getByRole('button',{name:'Hapus large-dimensions.png',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.au-compose-file').length===2);
+  await editor.getByRole('button',{name:'Hapus first.txt',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.au-compose-file').length===1);
+  assert.equal(await editor.getByRole('button',{name:'Hapus second.pdf',exact:true}).count(),1);
+  const transfer=await page.evaluateHandle(()=>{const data=new DataTransfer();data.items.add(new File(['drop bytes'],'<unsafe>.svg',{type:'image/svg+xml'}));return data;});
+  await editor.locator('.au-compose-content').dispatchEvent('dragenter',{dataTransfer:transfer});
+  assert.equal(await editor.locator('.au-compose-attachments.is-dragging').count(),1);
+  await editor.locator('.au-compose-body').dispatchEvent('dragenter',{dataTransfer:transfer});
+  await editor.locator('.au-compose-body').dispatchEvent('dragleave',{dataTransfer:transfer});
+  assert.equal(await editor.locator('.au-compose-attachments.is-dragging').count(),1,'nested leave keeps drop highlight');
+  await editor.locator('.au-compose-content').dispatchEvent('drop',{dataTransfer:transfer});
+  assert.equal(await editor.locator('.au-compose-file').count(),2);
+  assert.equal(await editor.locator('.au-compose-file img').count(),0,'SVG never decoded');
+  assert.equal(await editor.locator('.au-compose-attachments.is-dragging').count(),0);
+  await editor.getByRole('button',{name:'Hapus <unsafe>.svg',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('.au-compose-file').length===1);
+  await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles({name:'too-large.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(25_000_000)});
+  await page.getByText('Lampiran maksimal 100 file, total 25 MB.',{exact:true}).waitFor();
+  assert.equal(await editor.locator('.au-compose-file').count(),1,'size rejection retains earlier file');
+  await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles(Array.from({length:100},(_,i)=>({name:`file-${i}.txt`,mimeType:'text/plain',buffer:Buffer.from('x')})));
+  assert.equal(await editor.locator('.au-compose-file').count(),1,'count rejection retains earlier file');
+  assert.equal(await editor.getByLabel('CC',{exact:true}).isVisible(),false);
+  await editor.getByRole('button',{name:'CC',exact:true}).click();
+  await editor.getByLabel('CC',{exact:true}).fill('cc@example.test');
+  await editor.getByRole('button',{name:'CC',exact:true}).click();
+  await editor.getByRole('button',{name:'CC',exact:true}).click();
+  assert.equal(await editor.getByLabel('CC',{exact:true}).inputValue(),'cc@example.test');
+  await editor.getByLabel('Kepada',{exact:true}).fill('invalid');
+  await editor.getByLabel('Subjek',{exact:true}).fill('Keep subject');
+  await editor.locator('.au-compose-body').fill('Keep body');
+  await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+  assert.equal(await editor.getByLabel('Kepada',{exact:true}).getAttribute('aria-invalid'),'true');
+  assert.equal(requests.length,0);
+  for(const address of ['a@example.test,','a..b@example.test','a@-example.test',Array(21).fill('a@example.test').join(',')]) {
+   await editor.getByLabel('Kepada',{exact:true}).fill(address);await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+   assert.equal(await editor.getByLabel('Kepada',{exact:true}).getAttribute('aria-invalid'),'true');
+  }
+  assert.equal(requests.length,0);
+  await editor.getByLabel('Kepada',{exact:true}).fill('a@example.test, b@example.test');
+  await editor.getByLabel('CC',{exact:true}).fill('invalid');await editor.getByRole('button',{name:'CC',exact:true}).click();
+  await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+  assert.equal(await editor.getByLabel('CC',{exact:true}).isVisible(),true,'invalid collapsed CC revealed');
+  assert.equal(await editor.getByLabel('CC',{exact:true}).getAttribute('aria-invalid'),'true');
+  await editor.getByLabel('CC',{exact:true}).fill('cc@example.test');
+  await editor.getByRole('button',{name:'Minimalkan pesan',exact:true}).click();
+  assert.equal(await editor.locator('.au-compose-body').isVisible(),false);
+  await page.keyboard.press('Escape');
+  assert.equal(await editor.isVisible(),true,'Escape cannot discard minimized editor');
+  await editor.getByRole('button',{name:'Pulihkan pesan',exact:true}).click();
+  assert.equal(await editor.locator('.au-compose-body').inputValue(),'Keep body');
+  await editor.getByRole('button',{name:'Perbesar pesan',exact:true}).click();
+  await editor.getByRole('button',{name:'Pulihkan ukuran',exact:true}).click();
+  page.once('dialog',d=>d.dismiss());await editor.getByTitle('Tutup penulis pesan').click();
+  assert.equal(await editor.locator('.au-compose-body').inputValue(),'Keep body');
+  await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+  await page.getByText(/Draf belum tersimpan/).waitFor();
+  assert(requests[0].postDataBuffer().includes(Buffer.from('%PDF-synthetic')));
+  assert.equal(await editor.locator('.au-compose-body').inputValue(),'Keep body');
+  assert.equal(await editor.locator('.au-compose-file').count(),1);
+  await page.screenshot({path:`/tmp/aurora-compose-${width}.png`});
+  if(width===390) {await page.setViewportSize({width,height:460});const box=await editor.getByRole('button',{name:'Kirim',exact:true}).boundingBox();assert(box.y+box.height<=460);}
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+  await editor.getByRole('button',{name:'Hapus second.pdf',exact:true}).click();
+  status=0;await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.au-compose-window').getAttribute('aria-busy')==='true');
+  assert.equal(await attach.isDisabled(),true);assert.equal(await editor.getByTitle('Tutup penulis pesan').isDisabled(),true);
+  await editor.locator('.au-compose-content').dispatchEvent('drop',{dataTransfer:transfer});
+  assert.equal(await editor.locator('.au-compose-file').count(),1,'busy drop ignored');
+  while(!release) await page.waitForTimeout(10);release();
+  await page.waitForFunction(()=>document.querySelector('.au-compose-window').getAttribute('aria-busy')==='false');
+  assert.equal(await editor.locator('.au-compose-body').inputValue(),'Keep body');
+  assert.equal(await editor.getByRole('button',{name:'Hapus second.pdf',exact:true}).isEnabled(),true,'removal cannot race an in-flight submission');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await editor.evaluate(el=>getComputedStyle(el).transitionDuration),'0s');
+  await page.evaluate(()=>{document.querySelector('.aurora-app').classList.add('au-theme-light');});
+  await page.screenshot({path:`/tmp/aurora-compose-light-${width}.png`});
+  status=201;await editor.getByRole('button',{name:'Simpan draf',exact:true}).click();
+  await page.getByText('Draf tersimpan di Gmail',{exact:true}).waitFor();
+  await page.waitForFunction(()=>document.querySelector('.au-compose-window').hidden);
+  // Reopen through the existing shortcut while an exit transition could still be pending.
+  await page.keyboard.press('c');await editor.waitFor();
+  await editor.getByLabel('Subjek',{exact:true}).fill('New session');
+  await page.waitForTimeout(180);
+  assert.equal(await editor.isVisible(),true);
+  assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'New session');
+  page.once('dialog',d=>d.accept());await editor.getByTitle('Tutup penulis pesan').click();
+  await page.waitForFunction(()=>document.querySelector('.au-compose-window').hidden);
+  await context.close();
+ }} finally {await browser.close();}
+ console.log('Compose real chooser, additive files, removal, optional recipients, validation, minimize/expand, preserved failures and responsive footer passed');
+})().catch(error=>{console.error(error);process.exitCode=1;});
