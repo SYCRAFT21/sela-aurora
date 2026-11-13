@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
   try {
     await page.route('**/api/**', route => {
       const url = new URL(route.request().url()); requests.push(url.pathname);
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: accounts });
       if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [mail], errors: [] } });
       if (url.pathname.endsWith('/read')) return route.fulfill({ status: 403, body: 'synthetic permission error' });

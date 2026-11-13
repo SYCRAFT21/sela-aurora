@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from './Icon';
 import './sender-selector.css';
 
-type Account = { id: string; email: string; provider: string; reconnect: boolean; gmail_modify?: boolean | null };
+import type { Account } from './api';
 function ProviderIcon({ provider }: { provider: string }) {
   return <span className="au-sender-icon" aria-hidden="true">{provider === 'google' ? <svg viewBox="0 0 24 24" width="19" height="19" fill="none" strokeWidth="3.2" strokeLinejoin="round"><path stroke="#82aaff" d="M4 19V7" /><path stroke="#83d4b4" d="M20 19V7" /><path stroke="#e8bb76" d="m17 9 3-2v5" /><path stroke="#ed969f" d="M4 7v-1l8 6 8-6v1M4 7l8 6 5-4" /></svg> : <Icon name="Mail" size={19} />}</span>;
 }

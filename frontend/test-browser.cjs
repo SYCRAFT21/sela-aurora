@@ -14,6 +14,7 @@ const { chromium } = require('playwright');
       await page.route('**/api/**', async route => {
         const url = new URL(route.request().url());
         calls.push({ pathname: url.pathname, search: url.searchParams, method: route.request().method() });
+        if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
         if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
         if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [message], errors: [] } });
         if (url.pathname.startsWith('/api/message/') && url.pathname.endsWith('/read')) return route.fulfill({ status: 204 });
@@ -69,16 +70,18 @@ const { chromium } = require('playwright');
       await page.getByRole('heading', { name: 'Pengaturan' }).waitFor();
       if (await railGear.isVisible()) assert.match(await railGear.getAttribute('class'), /selected/, 'gear must show active Settings');
       const settings = page.getByRole('navigation', { name: 'Bagian pengaturan' });
-      assert.equal(await settings.getByRole('button').count(), 5, 'exactly five Settings sections');
-      for (const label of ['Tampilan & Preferensi', 'Akun & Sinkronisasi', 'Email & Notifikasi', 'Privasi & Keamanan', 'Tentang Aurora']) {
+      assert.equal(await settings.getByRole('button').count(), 6, 'six Settings sections including AI');
+      for (const label of ['Tampilan & Preferensi', 'Akun & Sinkronisasi', 'Email & Notifikasi', 'AI & Penulisan', 'Privasi & Keamanan', 'Tentang Aurora']) {
         await settings.getByRole('button', { name: label, exact: true }).click();
         await page.getByRole('heading', { name: label, exact: true }).waitFor();
       }
       await settings.getByRole('button', { name: 'Tampilan & Preferensi' }).click();
       await page.getByRole('button', { name: 'Adaptive', exact: true }).waitFor();
       await page.getByRole('button', { name: /Tema:/ }).click();
+      await page.waitForFunction(() => document.querySelector('.aurora-app')?.classList.contains('au-theme-light'));
       assert.match(await page.locator('.aurora-app').getAttribute('class'), /au-theme-light/);
       await page.getByRole('button', { name: /Kepadatan:/ }).click();
+      await page.waitForFunction(() => document.querySelector('.aurora-app')?.classList.contains('au-density-compact'));
       assert.match(await page.locator('.aurora-app').getAttribute('class'), /au-density-compact/);
       await page.getByRole('table', { name: 'Pintasan keyboard' }).waitFor();
       await page.keyboard.press('Tab');

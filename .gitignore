@@ -9,6 +9,7 @@
 *.key
 credentials*
 test-*.json
+test-browser.cjs
 AGENTS.md
 CLAUDE.md
 ISOLATED-WORKERS.md

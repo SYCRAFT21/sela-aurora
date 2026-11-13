@@ -125,6 +125,8 @@ const {chromium} = require('playwright');
   await page.waitForFunction(()=>document.querySelector('.au-compose-window').hidden);
   // Reopen through the existing shortcut while an exit transition could still be pending.
   await page.keyboard.press('c');await editor.waitFor();
+  // Opening schedules recipient autofocus; wait before typing into a different field.
+  await page.waitForFunction(()=>document.activeElement?.getAttribute('name')==='to');
   await editor.getByLabel('Subjek',{exact:true}).fill('New session');
   await page.waitForTimeout(180);
   assert.equal(await editor.isVisible(),true);

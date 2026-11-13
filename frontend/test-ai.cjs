@@ -1,0 +1,152 @@
+const assert=require('node:assert/strict');
+const {chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({executablePath:'/usr/bin/brave-browser',headless:true});
+ try {
+  for(const width of [1440,390]) {
+   const context=await browser.newContext({viewport:{width,height:900}}), page=await context.newPage();
+   let settings={ai:{protocol:'anthropic',endpoint:'https://api.anthropic.com/v1/messages',model:'claude-opus-5-5',enabled:false,key_configured:false},appearance:{theme:'dark',density:'comfortable',read_mode:'Adaptive'}};
+   let calls=0, writes=0, failed=false, settingsFailed=false, delayed=false, release;
+   let started;
+   let pendingStarted=new Promise(resolve=>started=resolve);
+   await page.route('**/api/**',async route=>{
+    const req=route.request(),path=new URL(req.url()).pathname;
+    if(path==='/api/settings') {
+     if(req.method()==='PATCH' && settingsFailed)return route.fulfill({status:500,body:'Synthetic settings failure'});
+     if(req.method()==='PATCH') {const patch=req.postDataJSON();writes++;settings={...settings,appearance:patch.appearance||settings.appearance,ai:{...settings.ai,...(patch.model?{model:patch.model}:{}),...(patch.protocol?{protocol:patch.protocol}:{}),...(patch.endpoint?{endpoint:patch.endpoint}:{}),...(typeof patch.enabled==='boolean'?{enabled:patch.enabled}:{}),...(patch.api_key?{key_configured:true}:{}),...(patch.clear_api_key?{enabled:false,key_configured:false}:{})}};}
+     return route.fulfill({json:settings});
+    }
+    if(path==='/api/accounts')return route.fulfill({json:[{id:'one',email:'one@example.test',provider:'google',gmail_modify:true}]});
+    if(path.startsWith('/api/inbox/'))return route.fulfill({json:{messages:[],errors:[]}});
+    if(path==='/api/ai/compose'){
+     calls++;assert.deepEqual(req.postDataJSON(),{instruction:'Tulis undangan rapat',consent:true});
+     if(delayed)await new Promise(resolve=>{release=resolve;started();});
+     return route.fulfill(failed?{status:502,body:'Synthetic AI failure'}:{json:{subject:'Undangan rapat',body:'Halo, mari rapat besok.'}}).catch(()=>{});
+    }
+    throw new Error('Unexpected provider mutation '+path);
+   });
+   await page.goto('http://127.0.0.1:4175');
+   await page.getByRole('button',{name:width===1440?'Pengaturan':'Setelan',exact:true}).click();
+   await page.getByRole('button',{name:'AI & Penulisan',exact:true}).click();
+   await page.getByLabel('Format API',{exact:true}).selectOption('openai_compatible');
+   await page.getByLabel('URL API lengkap',{exact:true}).fill('https://api.example.test/v1/chat/completions');
+   await page.getByLabel('Model AI',{exact:true}).fill('vendor/model:free');
+   await page.getByLabel('API key AI',{exact:true}).fill('synthetic-private-key');
+   page.once('dialog',d=>{assert.ok(d.message().includes('https://api.example.test'));return d.accept();});
+   await page.getByLabel('Aktifkan bantuan AI',{exact:true}).check();
+   await page.getByRole('button',{name:'Simpan pengaturan AI',exact:true}).click();
+   await page.waitForFunction(()=>document.querySelector('input[autocomplete="new-password"]')?.value==='');
+   assert.equal(settings.ai.key_configured,true);assert.ok(writes);
+   assert.equal(settings.ai.protocol,'openai_compatible');assert.equal(settings.ai.model,'vendor/model:free');
+   assert.equal(settings.ai.endpoint,'https://api.example.test/v1/chat/completions');
+   const before=writes;
+   await page.getByLabel('URL API lengkap',{exact:true}).fill('https://other.example.test/v1/chat/completions');
+   await page.getByRole('button',{name:'Simpan pengaturan AI',exact:true}).click();
+   await page.getByText('Ganti atau hapus API key sebelum mengubah URL atau format API.',{exact:true}).waitFor();
+   assert.equal(writes,before);
+   await page.getByLabel('URL API lengkap',{exact:true}).fill(settings.ai.endpoint);
+   assert.equal(await page.evaluate(()=>JSON.stringify({...localStorage}).includes('synthetic-private-key')),false);
+   await page.getByRole('button',{name:'Tampilan & Preferensi',exact:true}).click();
+   await page.getByRole('button',{name:'Tema: Aurora Dark',exact:true}).click();
+   await page.getByRole('button',{name:'Tema: Light',exact:true}).waitFor();
+   settingsFailed=true;
+   await page.getByRole('button',{name:'Tema: Light',exact:true}).click();
+   await page.getByText('Error: Synthetic settings failure',{exact:true}).waitFor();
+   assert.equal(await page.getByRole('button',{name:'Tema: Light',exact:true}).count(),1);
+   settingsFailed=false;
+   await page.reload();
+   await page.getByRole('button',{name:width===1440?'Pengaturan':'Setelan',exact:true}).click();
+   await page.getByRole('button',{name:'Tampilan & Preferensi',exact:true}).click();
+   await page.getByRole('button',{name:'Tema: Light',exact:true}).waitFor();
+   await page.getByRole('button',{name:'AI & Penulisan',exact:true}).click();
+   assert.equal(await page.getByLabel('API key AI',{exact:true}).inputValue(),'');
+   assert.equal(await page.getByLabel('Format API',{exact:true}).inputValue(),'openai_compatible');
+   assert.equal(await page.getByLabel('URL API lengkap',{exact:true}).inputValue(),'https://api.example.test/v1/chat/completions');
+   assert.equal(await page.getByLabel('Model AI',{exact:true}).inputValue(),'vendor/model:free');
+   page.once('dialog',d=>d.accept());
+   await page.getByRole('button',{name:'Hapus API key',exact:true}).click();
+   await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(button=>button.textContent==='Hapus API key' && button.disabled));
+   assert.equal(settings.ai.key_configured,false);assert.equal(settings.ai.enabled,false);
+   await page.getByLabel('API key AI',{exact:true}).fill('synthetic-replacement-key');
+   await page.getByLabel('Aktifkan bantuan AI',{exact:true}).check();
+   await page.getByRole('button',{name:'Simpan pengaturan AI',exact:true}).click();
+   await page.waitForFunction(()=>document.querySelector('input[autocomplete="new-password"]')?.value==='');
+   await page.getByRole('button',{name:width===1440?'Pengaturan':'Inbox',exact:true}).click();
+   if(width===1440)await page.locator('.au-compose-trigger').click();else await page.locator('.au-mobile-bottom').getByTitle('Tulis email').click();
+   const editor=page.getByRole('region',{name:'Tulis pesan'});
+   await editor.getByLabel('Kepada',{exact:true}).fill('friend@example.test');
+   await editor.getByLabel('Subjek',{exact:true}).fill('Teks awal');
+   await editor.getByLabel('Isi pesan',{exact:true}).fill('Isi awal');
+   await editor.getByLabel('Lampirkan file',{exact:true}).setInputFiles({name:'fixture.txt',mimeType:'text/plain',buffer:Buffer.from('synthetic')});
+   await editor.getByText('Bantu tulis',{exact:true}).click();
+   await editor.getByLabel('Instruksi AI',{exact:true}).fill('Tulis undangan rapat');
+   assert.equal(await editor.getByRole('button',{name:'Buat teks',exact:true}).isDisabled(),true);
+   assert.ok((await editor.textContent()).includes('https://api.example.test'));
+   await editor.getByLabel('Saya setuju instruksi dikirim ke penyedia yang dikonfigurasi dan dikenai biaya API.').check();
+   await editor.getByRole('button',{name:'Buat teks',exact:true}).click();
+   await editor.getByRole('button',{name:'Gunakan hasil',exact:true}).waitFor();
+   assert.equal(calls,1);assert.equal(await editor.getByLabel('Isi pesan',{exact:true}).inputValue(),'Isi awal');
+   page.once('dialog',d=>d.dismiss());await editor.getByRole('button',{name:'Gunakan hasil',exact:true}).click();
+   assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'Teks awal');
+   page.once('dialog',d=>d.accept());await editor.getByRole('button',{name:'Gunakan hasil',exact:true}).click();
+   assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'Undangan rapat');
+   assert.equal(await editor.getByLabel('Kepada',{exact:true}).inputValue(),'friend@example.test');
+   assert.equal(await editor.locator('.au-compose-file').count(),1);
+   // Saved configuration invalidates an existing preview without erasing the draft.
+   await editor.getByRole('button',{name:'Minimalkan pesan',exact:true}).click();
+   await page.getByRole('button',{name:width===1440?'Pengaturan':'Setelan',exact:true}).click();
+   await page.getByRole('button',{name:'AI & Penulisan',exact:true}).click();
+   await page.getByLabel('Model AI',{exact:true}).fill('vendor/replacement:free');
+   // Keyboard activation avoids the deliberately overlaid minimized editor on mobile.
+   await page.getByRole('button',{name:'Simpan pengaturan AI',exact:true}).focus();
+   await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>!document.querySelector('.au-ai-result'));
+   await editor.getByRole('button',{name:'Pulihkan pesan',exact:true}).click();
+   assert.equal(await editor.getByLabel('Saya setuju instruksi dikirim ke penyedia yang dikonfigurasi dan dikenai biaya API.').isChecked(),false);
+   assert.equal(await editor.getByLabel('Kepada',{exact:true}).inputValue(),'friend@example.test');
+   assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'Undangan rapat');
+   assert.equal(await editor.locator('.au-compose-file').count(),1);
+   await editor.getByLabel('Saya setuju instruksi dikirim ke penyedia yang dikonfigurasi dan dikenai biaya API.').check();
+   failed=true;await editor.getByRole('button',{name:'Buat teks',exact:true}).click();
+   await editor.getByText('Synthetic AI failure',{exact:true}).waitFor();
+   assert.equal(await editor.getByLabel('Isi pesan',{exact:true}).inputValue(),'Halo, mari rapat besok.');
+   failed=false;delayed=true;await editor.getByRole('button',{name:'Buat teks',exact:true}).click();
+   await pendingStarted;
+   assert.equal(await editor.getByRole('button',{name:'Kirim',exact:true}).isDisabled(),true);
+   assert.equal(await editor.getByRole('button',{name:'Simpan draf',exact:true}).isDisabled(),true);
+   // A saved model change must also abort an in-flight generation, not just clear previews.
+   await editor.getByRole('button',{name:'Minimalkan pesan',exact:true}).click();
+   await page.getByLabel('Model AI',{exact:true}).fill('vendor/pending-change:free');
+   await page.getByRole('button',{name:'Simpan pengaturan AI',exact:true}).focus();
+   await page.keyboard.press('Enter');
+   await page.waitForFunction(()=>!document.querySelector('.au-compose-window')?.getAttribute('aria-busy')?.includes('true'));
+   release();
+   await editor.getByRole('button',{name:'Pulihkan pesan',exact:true}).click();
+   assert.equal(await editor.getByLabel('Saya setuju instruksi dikirim ke penyedia yang dikonfigurasi dan dikenai biaya API.').isChecked(),false);
+   assert.equal(await editor.getByRole('button',{name:'Gunakan hasil',exact:true}).count(),0);
+   assert.equal(await editor.getByLabel('Kepada',{exact:true}).inputValue(),'friend@example.test');
+   assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'Undangan rapat');
+   assert.equal(await editor.locator('.au-compose-file').count(),1);
+   pendingStarted=new Promise(resolve=>started=resolve);
+   await editor.getByLabel('Saya setuju instruksi dikirim ke penyedia yang dikonfigurasi dan dikenai biaya API.').check();
+   await editor.getByRole('button',{name:'Buat teks',exact:true}).click();
+   await pendingStarted;
+   page.once('dialog',d=>d.accept());await editor.getByRole('button',{name:'Tutup penulis pesan',exact:true}).click();
+   release();
+   if(width===1440)await page.locator('.au-compose-trigger').click();else await page.locator('.au-mobile-bottom').getByTitle('Tulis email').click();
+   assert.equal(await editor.getByLabel('Subjek',{exact:true}).inputValue(),'');
+   assert.equal(await editor.getByLabel('Isi pesan',{exact:true}).inputValue(),'');
+   assert.equal(await editor.getByRole('button',{name:'Gunakan hasil',exact:true}).count(),0);
+   await editor.getByText('Bantu tulis',{exact:true}).click();
+   await editor.getByLabel('Instruksi AI',{exact:true}).fill('Instruksi belum disimpan');
+   page.once('dialog',d=>d.dismiss());
+   await editor.getByRole('button',{name:'Tutup penulis pesan',exact:true}).click();
+   assert.equal(await editor.isVisible(),true);
+   page.once('dialog',d=>d.accept());
+   await editor.getByRole('button',{name:'Tutup penulis pesan',exact:true}).click();
+   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+   await context.close();
+  }
+  console.log('AI settings/consent/preview/preservation/stale-result checks passed at 1440/390');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1);});

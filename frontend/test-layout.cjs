@@ -11,6 +11,7 @@ const { chromium } = require('playwright');
       page.on('pageerror', e => errors.push(e.message));
       await page.route('**/api/**', route => {
         const url = new URL(route.request().url());
+        if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
         if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
         if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: Array.from({ length: 69 }, (_, i) => ({ ...message, id: `m-${i}`, subject: `Review desain ${i}` })), errors: [], next_cursors: {}, limited_accounts: [] } });
         if (url.pathname.startsWith('/api/message/')) return route.fulfill({ json: { sender: message.sender, recipient: message.recipient, subject: message.subject, received: message.received, body: 'Isi email uji.', url: '' } });

@@ -10,6 +10,7 @@ const { chromium } = require('playwright');
   try {
     await page.route('**/api/**', async route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
       if (url.pathname.startsWith('/api/inbox/')) return failReload ? route.fulfill({ status: 503, body: 'synthetic refresh failure' }) : route.fulfill({ json: { messages: [mail], errors: [], next_cursors: {}, limited_accounts: [] } });
       if (url.pathname.endsWith('/action')) { calls.push(route.request().postDataJSON()); return route.fulfill({ status: 204 }); }
@@ -35,6 +36,7 @@ const { chromium } = require('playwright');
     const composeCalls = [];
     await composePage.route('**/api/**', route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
       if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [mail], errors: [], next_cursors: {}, limited_accounts: [] } });
       if (url.pathname === '/api/compose/google-account') { composeCalls.push(route.request().postDataJSON()); return route.fulfill({ json: { id: 'fictional-id' }, status: 201 }); }
@@ -80,6 +82,7 @@ const { chromium } = require('playwright');
     const uncertain = await browser.newPage();
     await uncertain.route('**/api/**', route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
       if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [mail], errors: [], next_cursors: {}, limited_accounts: [] } });
       if (url.pathname === '/api/compose/google-account') return route.fulfill({ status: 504, body: 'synthetic timeout' });
@@ -98,6 +101,7 @@ const { chromium } = require('playwright');
     let rejectedCalls = 0;
     await rejected.route('**/api/**', route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: [account] });
       if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [mail], errors: [], next_cursors: {}, limited_accounts: [] } });
       if (url.pathname === '/api/compose/google-account') return route.fulfill(++rejectedCalls === 1 ? { status: 400, body: 'Alamat tidak valid' } : { status: 201, json: { id: 'fictional-id' } });
@@ -119,6 +123,7 @@ const { chromium } = require('playwright');
     let accountReads = 0;
     await restored.route('**/api/**', route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: [{ ...account, gmail_modify: ++accountReads > 1 ? true : null }] });
       if (url.pathname.startsWith('/api/inbox/')) return route.fulfill({ json: { messages: [mail], errors: [], next_cursors: {}, limited_accounts: [] } });
       if (url.pathname.startsWith('/api/message/')) return route.fulfill({ json: { sender: mail.sender, recipient: mail.recipient, subject: mail.subject, received: mail.received, body: 'Sent body', url: '' } });

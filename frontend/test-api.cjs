@@ -1,0 +1,48 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const Module = require('node:module');
+const filename = require.resolve('./src/api.ts');
+const mod = new Module(filename, module);
+mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText, filename);
+const {api, ApiError} = mod.exports;
+(async () => {
+  let request;
+  global.fetch = async (url, options) => {request={url,options};return new Response(null,{status:204});};
+  await api.markRead('account/a','message/b');
+  assert.equal(request.url,'/api/message/account%2Fa/read');
+  assert.deepEqual(JSON.parse(request.options.body),{id:'message/b'});
+  for (const status of [400,413,422,424,429,500,502]) {
+    global.fetch=async()=>new Response('Synthetic failure',{status});
+    await assert.rejects(api.compose('one',{to:'x@example.test',subject:'x',body:'x'}),error=>error instanceof ApiError && error.status===status && error.message==='Synthetic failure');
+  }
+  global.fetch=async()=>new Response('not JSON');
+  await assert.rejects(api.accounts(),/JSON|Respons/);
+  global.fetch=async()=>Response.json({unexpected:true});
+  await assert.rejects(api.accounts(),/Respons/);
+  global.fetch=async()=>Response.json([{id:'one',email:'one@example.test',provider:'google'}]);
+  assert.equal((await api.accounts())[0].id,'one');
+  const controller=new AbortController();controller.abort();
+  global.fetch=async(_,options)=>{assert.equal(options.signal,controller.signal);throw new DOMException('Aborted','AbortError');};
+  await assert.rejects(api.generateAi({instruction:'x',consent:true},controller.signal),error=>error.name==='AbortError');
+  await assert.rejects(api.detail('one','message',controller.signal),error=>error.name==='AbortError');
+  const form=new FormData();form.append('manifest','{}');form.append('file0',new Blob([new Uint8Array([0,255,1])]),'fixture.bin');
+  global.fetch=async(url,options)=>{request={url,options};return Response.json({id:'sent',message_id:null},{status:201});};
+  await api.compose('one',form);
+  assert.equal(request.options.body,form);
+  assert.equal(request.options.headers,undefined);
+  assert.deepEqual([...new Uint8Array(await request.options.body.get('file0').arrayBuffer())],[0,255,1]);
+  const session={id:'fixture',revision:1,consent:false,accounts:[],messages:[],draft:null,pending:[],history_trimmed:false};
+  global.fetch=async(url,options)=>{request={url,options};return Response.json(session);};
+  assert.deepEqual(await api.createAssistant(),session);
+  await api.assistantAction('a/b',1,{kind:'send_email'});
+  assert.equal(request.url,'/api/assistant/sessions/a%2Fb/actions');
+  assert.deepEqual(JSON.parse(request.options.body),{expected_revision:1,action:{kind:'send_email'}});
+  await api.confirmAssistant('a/b','c/d',2);
+  assert.equal(request.url,'/api/assistant/sessions/a%2Fb/actions/c%2Fd/confirm');
+  global.fetch=async()=>Response.json({...session,pending:[{id:'x',action:{kind:'shell'},email:null,status:'pending',result:null}]});
+  await assert.rejects(api.getAssistant('fixture'),/Respons/);
+  global.fetch=async()=>Response.json({...session,revision:1.5});
+  await assert.rejects(api.getAssistant('fixture'),/Respons/);
+  console.log('Typed API status/no-content/shape/abort/multipart/assistant checks passed');
+})().catch(error=>{console.error(error);process.exit(1);});

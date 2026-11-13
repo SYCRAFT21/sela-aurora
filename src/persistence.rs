@@ -16,17 +16,27 @@ pub fn load(path: &Path) -> io::Result<Vec<SavedAccount>> {
 }
 
 pub fn save(path: &Path, accounts: &[SavedAccount]) -> io::Result<()> {
-    let data = serde_json::to_vec(accounts).map_err(io::Error::other)?;
+    write_json(path, accounts, false)
+}
+
+pub fn write_json(path: &Path, value: &(impl serde::Serialize + ?Sized), create_only: bool) -> io::Result<()> {
+    let data = serde_json::to_vec_pretty(value).map_err(io::Error::other)?;
     let temp = path.with_extension(format!("{}-{}.tmp", std::process::id(), rand::random::<u64>()));
-    #[cfg(unix)] {
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+    let mut owned = false;
+    let result = (|| {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
+        let mut file = options.open(&temp)?;
+        owned = true;
         use std::io::Write;
         file.write_all(&data)?;
         file.sync_all()?;
-    }
-    #[cfg(not(unix))] fs::write(&temp, data)?;
-    fs::rename(temp, path)
+        if create_only { fs::hard_link(&temp, path)?; Ok(()) } else { fs::rename(&temp, path) }
+    })();
+    // Only remove the temporary file owned by this attempt, never the destination.
+    if owned { let _ = fs::remove_file(&temp); }
+    result
 }
 
 fn lookup_with(binary: &str, id: &str) -> io::Result<Option<String>> {

@@ -9,6 +9,7 @@ const { chromium } = require('playwright');
   try {
     await page.route('**/api/**', route => {
       const url = new URL(route.request().url());
+      if (url.pathname === '/api/settings') return route.fulfill({ json: { ai: { model: 'claude-opus-5-5', enabled: false, key_configured: false }, appearance: route.request().postDataJSON()?.appearance || null } });
       if (url.pathname === '/api/accounts') return route.fulfill({ json: accounts });
       if (url.pathname.startsWith('/api/inbox/')) {
         calls.push(url.searchParams);
@@ -47,6 +48,39 @@ const { chromium } = require('playwright');
     await page.getByRole('button', { name: /Berbintang/ }).first().click();
     await page.getByRole('heading', { name: 'Tidak ada pesan di sini' }).waitFor();
     await page.getByRole('button', { name: 'Muat lagi' }).waitFor();
-    console.log('Per-account cursor, dedupe, Sent recipient, empty-page continuation, and reset checks passed');
+    // Late page/detail responses cannot replace the newly selected account.
+    await page.unroute('**/api/inbox/**');
+    let releasePage, releaseDetail, pageStarted, detailStarted;
+    const pendingPage=new Promise(resolve=>pageStarted=resolve);
+    const pendingDetail=new Promise(resolve=>detailStarted=resolve);
+    await page.route('**/api/inbox/**',async route=>{
+      const url=new URL(route.request().url()), account=url.pathname.split('/').pop();
+      if(url.searchParams.has('cursors')) { pageStarted(); await new Promise(resolve=>releasePage=resolve); return route.fulfill({json:{messages:[mail('one','late-page','x@example.test')],errors:[],next_cursors:{}}}); }
+      return route.fulfill({json:{messages:[mail(account,'current','x@example.test')],errors:[],next_cursors:account==='one'?{one:'next'}:{}}});
+    });
+    await page.route('**/api/message/**',async route=>{
+      const account=new URL(route.request().url()).pathname.split('/').pop();
+      if(account==='one') { detailStarted(); await new Promise(resolve=>releaseDetail=resolve); }
+      return route.fulfill({json:{...mail(account,'current','x@example.test'),body:account==='one'?'STALE DETAIL':'CURRENT DETAIL'}});
+    });
+    await page.locator('.au-rail').getByRole('button',{name:'one@example.test',exact:true}).click();
+    await page.getByText('Subject one current',{exact:true}).waitFor();
+    await page.getByRole('button',{name:'Muat lagi',exact:true}).click();
+    await pendingPage;
+    await page.locator('.au-mail-row').first().click();
+    await pendingDetail;
+    await page.locator('.au-rail').getByRole('button',{name:'two@example.test',exact:true}).click();
+    await page.getByText('Subject two current',{exact:true}).waitFor();
+    await page.locator('.au-mail-row').first().click();
+    await page.getByText('CURRENT DETAIL',{exact:true}).waitFor();
+    const latePage=page.waitForResponse(response=>response.url().includes('/api/inbox/one')&&new URL(response.url()).searchParams.has('cursors'));
+    const lateDetail=page.waitForResponse('**/api/message/one?**');
+    releasePage(); releaseDetail();
+    await Promise.all([latePage,lateDetail]);
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await page.locator('.au-mail-row').count(),1);
+    assert.equal(await page.getByText('STALE DETAIL',{exact:true}).count(),0);
+    assert.equal(await page.getByText('CURRENT DETAIL',{exact:true}).count(),1);
+    console.log('Cursor/dedupe/polling/reset and delayed account-bound page/detail checks passed');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

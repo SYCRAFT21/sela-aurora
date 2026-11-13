@@ -47,6 +47,17 @@ A local-first email client with a Rust backend and a React interface. Bring mult
 - Minimize and expand controls, explicit dirty-discard confirmation, and browser unload warnings for unsaved content.
 - Sending requires user confirmation. Write operations depend on verified Gmail permissions.
 
+### Conversational AI assistant
+
+- Floating Aurora AI chat with multi-turn Indonesian/English conversation, active email drafts, inline action reviews, minimize/expand and mobile full-screen layout.
+- Separate provider consent and Gmail account access. Search returns up to10 real results; reading shows an excerpt for separate approval before sharing with the AI provider. No automatic mailbox or attachment upload.
+- Prepare/revise email, source-bound replies, forward drafts, Compose handoff, Gmail draft saving and sending through the existing Gmail service. Send/save requires an explicit exact-snapshot confirmation; model output and typed “yes” cannot approve operations. Provider failures remain failures; uncertain delivery is never automatically retried.
+- Sessions are memory-only, at most32 with a two-hour idle lifetime and128KiB context limit. Restart loses conversation/approvals. Duplicate-send protection is not durable across restarts; check Gmail after uncertain delivery.
+- Review/edit/reschedule/cancel local text-only proposals; every persistence change requires a separate confirmation.
+- **Rencana tersimpan is not Email terjadwal.** JSON proposals are never sent automatically. Scheduling remains disabled without an independent server worker, separate server OAuth and encrypted credential storage.
+- Proposal JSON uses private Unix permissions; content is plaintext on disk, not encrypted. No desktop OAuth token migration. Supported proposal zones: UTC, Asia/Jakarta, Asia/Makassar, Asia/Jayapura.
+- [Implementation limits and concrete Phase 2 plan](docs/ai-scheduling.md). Frontend source changes require a frontend rebuild before the Rust executable embeds them; preserve locally modified generated assets until overwrite is explicitly authorized.
+
 ### Attachments
 
 - PDF, supported raster image, and UTF-8 text previews.
@@ -103,36 +114,23 @@ https://www.googleapis.com/auth/gmail.modify
 
 See [Google OAuth documentation](https://developers.google.com/identity/protocols/oauth2/web-server) and [restricted-scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification).
 
-### 3. Create local configuration files
+### 3. Create one local settings file
 
-The entire `config/` directory is ignored by Git. **Create both files locally**, even if you only use Gmail: startup currently reads both provider files.
+All application settings live in `config/app.json`: Google/Microsoft OAuth, optional AI credentials/model, and appearance. The entire `config/` directory is ignored by Git; the public [config.example.json](config.example.json) contains placeholders only.
 
-Create the directory if needed:
+For a **new installation**, from the project root:
 
 ```sh
 mkdir -p config
+chmod 700 config
+(umask 077; cp -n config.example.json config/app.json)
 ```
 
-Create `config/google.json` with your own values:
+Edit `config/app.json` locally. Replace the Google placeholders; leave unused providers' `client_id` empty. AI is disabled by default. Never copy this example over an existing settings file. OAuth changes require an application restart.
 
-```json
-{
-  "client_id": "YOUR_GOOGLE_CLIENT_ID",
-  "client_secret": "YOUR_GOOGLE_CLIENT_SECRET"
-}
-```
+**Existing installations:** stop the application before changing configuration. Make the existing `config/` directory private with `chmod 700 config`. If `app.json` is absent, startup imports existing `google.json` and `microsoft.json` into it without deleting or changing those files. Missing providers become empty; malformed legacy files stop migration. Do not copy the example first if you want this import. Once `app.json` exists, it is authoritative; invalid JSON does not fall back to legacy files. On Unix, `app.json` must be private (`chmod 600 config/app.json`); symlinks are rejected. Remove legacy files manually only after verifying the migrated setup works.
 
-For a Gmail-only setup, create `config/microsoft.json` with:
-
-```json
-{
-  "client_id": ""
-}
-```
-
-An unused provider must still have a valid JSON configuration file with an empty `client_id`; do not leave the file empty. Do not overwrite existing configurations or account metadata when following these instructions.
-
-Do not commit credentials, tokens, account metadata, or screenshots containing private email. You do not need to create `config/accounts.json`; the application manages account metadata after a successful connection.
+Do not commit credentials, tokens, account metadata, or screenshots containing private email. `config/accounts.json` is application-managed account **data**, not another settings file. Refresh tokens remain in the OS keyring; do not move them into `app.json`.
 
 <details>
 <summary>Optional: configure the partial Outlook integration</summary>
@@ -145,7 +143,7 @@ http://localhost:3000/callback/microsoft
 
 Configure delegated permissions `User.Read` and `Mail.ReadWrite`. The application also requests `openid`, `email`, and `offline_access` and uses PKCE without a Microsoft client secret.
 
-Set the Application (client) ID in `config/microsoft.json`. Organizational accounts may require administrator consent. This configuration does not imply that all Outlook features are supported or verified.
+Set `microsoft.client_id` in `config/app.json`. Organizational accounts may require administrator consent. This configuration does not imply that all Outlook features are supported or verified.
 
 </details>
 
@@ -187,9 +185,29 @@ Opening an unread message can mark it as read at the provider. Other actions, in
 - Refresh tokens are stored through the OS keyring. Access tokens are held in process memory; they are not returned to the frontend.
 - There is no plaintext-token fallback when keyring storage fails.
 - The application does not maintain a persistent local email database. Message content and attachment previews are handled in memory; explicit downloads are saved by the browser.
-- Browser storage is used for appearance and reading preferences, not for persisting unsent messages or OAuth tokens.
+- Appearance settings are authoritative in `config/app.json`. Existing browser preferences migrate on first settings load when appearance is absent; browser storage remains a fallback/cache only. It does not persist unsent messages, AI instructions, API keys, or OAuth tokens.
+- The AI API key and OAuth client secret are **plaintext** in the private settings file, not encrypted. Unix file permissions reduce access; they do not protect against software running as your user. Exclude this file from shared backups and never publish it.
 
 Do not delete or edit `config/accounts.json` while the application is running. Disconnect accounts through Settings with the confirmation dialog; disconnecting removes the local connection, not provider email messages.
+
+### Optional AI email writing
+
+Open **Settings → AI & Penulisan**, choose the API format, enter the **complete endpoint URL**, your API key, and the exact model ID offered by that provider. Enable assistance, then save. These settings stay together in `config/app.json`.
+
+| Format | `ai.protocol` | Example `ai.endpoint` |
+| --- | --- | --- |
+| OpenAI-compatible Chat Completions | `openai_compatible` | `https://api.openai.com/v1/chat/completions` |
+| Anthropic Messages | `anthropic` | `https://api.anthropic.com/v1/messages` |
+
+The endpoint is used exactly as entered; paths are not appended automatically. OpenAI-compatible gateways must support Bearer authentication, system/user messages, `max_completion_tokens`, non-streaming Chat Completions, and JSON subject/body text output. Model IDs may contain `/` and `:`. Not every provider/model implements this contract: native Gemini, Bedrock signing, Azure-specific authentication, Responses-only APIs, and arbitrary custom headers are not supported. Unsupported requests fail safely; no automatic billed retries or model discovery occur.
+
+Remote endpoints require HTTPS; HTTP is allowed only for explicit `localhost` or loopback destinations (for example `http://127.0.0.1:11434/v1/chat/completions`). URL credentials, query parameters, fragments, and redirects are rejected. **The configured endpoint receives your key and instructions. Only use destinations you trust.** These checks do not provide SSRF isolation or make this a multi-user service. Changing URL or format requires replacing or explicitly deleting the saved key, preventing accidental forwarding of an old key to another destination. The password field never reads the saved key back; omission preserves it only with an unchanged destination/format. **Hapus API key** removes it and disables AI. Saving does not contact the model or incur charges.
+
+In Compose, expand **Bantu tulis**, check the displayed destination, write an instruction, and consent to processing. Only that instruction is sent; inbox content, existing subject/body, recipients, account identifiers, and attachments are not included automatically. For remote APIs, the instruction leaves your computer and is subject to provider terms and billing. A trusted local compatible server can run locally; configuring a remote API is not offline AI.
+
+Existing settings without protocol/endpoint retain Anthropic Messages, `https://api.anthropic.com/v1/messages`, and their saved model/key. The example remains disabled by default with editable model `claude-opus-5-5`; select the model that actually exists at your chosen endpoint. Anthropic requests alone enable server-side refusal fallback, so a fallback model may handle a refused request. Results remain plain-text previews: **Gunakan hasil** applies subject/body, asking before replacing text. Nothing sends email or saves a Gmail draft automatically. Review facts and placeholders yourself.
+
+Generation uses one request at a time, no automatic retries, a 10-second connection timeout and a 90-second total timeout. Instructions are limited to 8 KiB, provider responses to 128 KiB, subjects to 512 bytes, and generated bodies to 16 KiB, with a 4096 output-token cap. Refused, malformed, oversized, or truncated output is rejected without changing existing text. Closing Compose aborts the browser request and ignores stale results; an already submitted provider request may still incur charges. Live provider/model compatibility and billing have not been exercised by automated tests.
 
 ### Email rendering
 
@@ -202,7 +220,7 @@ Do not delete or edit `config/accounts.json` while the application is running. D
 
 ### Protective limits
 
-Provider requests have a 10-second connection timeout and a 30-second total timeout. OAuth token JSON is limited to 64 KiB. Attachment downloads use attachment disposition, `application/octet-stream`, `nosniff`, and `no-store` headers. The application document denies framing by other sites.
+Mail/OAuth provider requests have a 10-second connection timeout and a 30-second total timeout; optional AI generation uses the separate limits above. OAuth token JSON is limited to 64 KiB. Attachment downloads use attachment disposition, `application/octet-stream`, `nosniff`, and `no-store` headers. The application document denies framing by other sites.
 
 These controls reduce specific risks; they do not replace an independent audit. Not every provider JSON response currently has an explicit byte limit, and preview limits do not cover every possible resource-exhaustion scenario.
 
@@ -280,6 +298,8 @@ node frontend/test-sender-selector.cjs
 node frontend/test-compose.cjs
 node frontend/test-compose-review.cjs
 node frontend/test-audit-fixes.cjs
+node frontend/test-ai.cjs
+node frontend/test-api.cjs
 ```
 
 Browser tests intercept API calls with fictional accounts, messages, and attachments. Rust integration tests use synthetic local provider endpoints. They are not evidence of live Google or Microsoft compatibility, physical-device behavior, or a comprehensive security audit.
@@ -296,7 +316,7 @@ Do not share raw OAuth responses, authorization codes, tokens, or secrets when r
 
 ### Startup cannot read configuration
 
-Run from the project root. Ensure both `config/google.json` and `config/microsoft.json` exist and contain valid JSON. An unused provider should have an empty `client_id`, not a missing file.
+Run from the project root. Check `config/app.json` JSON, schema version `1`, and allowed appearance values. On Unix, require directory mode `0700` and settings mode `0600`, with no symlinks. If migrating without `app.json`, check legacy provider JSON without deleting saved accounts. An unused provider may have an empty `client_id`. Never post configuration contents containing secrets.
 
 ### The keyring is unavailable
 
@@ -314,14 +334,33 @@ Build the frontend and use the production preview command above. The PDF worker 
 
 ```text
 frontend/
-  src/               React interface, message rendering, and attachment previews
-  test-*.cjs         Synthetic browser regression tests
+  src/
+    AuroraLive.tsx   Shell/navigation and explicit feature coordination
+    api.ts           Typed JSON/no-content/multipart transport and response checks
+    useMailbox.ts    Account, list, reader, pagination and action state
+    useSettings.ts   Appearance and saved/edited AI configuration
+    useCompose.ts    Compose, attachments, draft/send and AI session behavior
+    *View.tsx        Mailbox presentation; existing safe renderer reused
+    *Panel.tsx       Settings presentation
+    ComposeEditor.tsx Mounted editor presentation
+  test-*.cjs         Synthetic browser regressions and API contract assertions
 src/
-  main.rs            Axum routes, OAuth flows, and provider integration
+  main.rs            Startup, account restoration and listener
+  app.rs             Router, shared internal contracts and HTTP security guards
+  oauth.rs           Authorization, token exchange and serialized refresh
+  accounts.rs        Redacted account list and disconnect transaction
+  mailbox.rs         Query/cursor validation and mailbox orchestration
+  gmail.rs, graph.rs Concrete provider reads, mappings and mutations
+  compose.rs         Multipart/MIME validation and delivery service
+  downloads.rs       Account/message-bound attachment responses
+  tests.rs           Synthetic cross-feature integration tests
   attachments.rs     MIME traversal, validation, and attachment construction
   persistence.rs     Account metadata and OS keyring integration
+  settings.rs        Unified private settings and legacy migration
+  ai.rs              Bounded AI email generation
   aurora-dist/       Frontend build output embedded in the Rust binary
-config/              Local-only provider configuration and account metadata
+config.example.json  Public placeholder settings
+config/              Private app.json settings and accounts.json data
 build.rs             Embedded asset generation
 ```
 

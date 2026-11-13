@@ -1,0 +1,45 @@
+import {useEffect,useRef,useState} from 'react';
+import type {Account,SettingsView,AssistantDraft,AgentEmail,MessageReference} from './api';
+import {Icon} from './Icon';
+import {useAssistant} from './useAssistant';
+import {ActiveDraft,AssistantCard,ActionReview} from './AssistantCards';
+import './assistant.css';
+type Props={accounts:Account[];settings:SettingsView|null;settingsError:string;openSettings:()=>void;composeOpen:boolean;selected?:MessageReference;importDraft:(draft:AssistantDraft,account:string,source?:MessageReference|null,mode?:'new'|'reply'|'forward')=>boolean};
+export function AssistantPanel({accounts,settings,settingsError,openSettings,composeOpen,selected,importDraft}:Props){
+ const agent=useAssistant(),{session,busy,error}=agent;
+ const [open,setOpen]=useState(false),[expanded,setExpanded]=useState(false),[privacy,setPrivacy]=useState(false),[input,setInput]=useState(''),[unread,setUnread]=useState(false);
+ const dialog=useRef<HTMLDialogElement>(null),trigger=useRef<HTMLButtonElement>(null),scroll=useRef<HTMLDivElement>(null),nearBottom=useRef(true);
+ const ready=!!settings?.ai.enabled&&!!settings.ai.key_configured;
+ function hide(){agent.cancel();setOpen(false);dialog.current?.close();requestAnimationFrame(()=>trigger.current?.focus());}
+ function compose(e:AgentEmail){if(importDraft(e.draft,e.account_id,e.source,e.mode))hide();}
+ useEffect(()=>{if(open){dialog.current?.showModal();void agent.open();}else dialog.current?.close();},[open]);
+ useEffect(()=>{if(composeOpen&&open)hide();},[composeOpen]);
+ const destination=JSON.stringify(settings?.ai),identity=accounts.map(a=>a.id+':'+a.email).join('|');
+ const prior=useRef({destination,identity});
+ useEffect(()=>{const changed=prior.current.destination!==destination,removed=prior.current.identity!==identity;prior.current={destination,identity};if(session&&(changed||removed))void agent.access(changed?false:session.consent,session.accounts.filter(id=>accounts.some(a=>a.id===id&&a.provider==='google')));},[destination,identity]);
+ useEffect(()=>{if(nearBottom.current){scroll.current?.scrollTo({top:scroll.current.scrollHeight});setUnread(false);}else setUnread(true);},[session?.revision,busy]);
+ async function chat(text=input){if(!text.trim()||busy||!session?.consent||!ready)return;const result=await agent.chat(text);if(result)setInput('');}
+ const pending=session?.pending.filter(p=>p.status==='pending')||[];
+ return <>
+ <button ref={trigger} className="au-assistant-trigger" hidden={composeOpen} aria-label="Buka asisten" onClick={()=>setOpen(true)}><Icon name="Mails"/>Aurora AI</button>
+ <dialog ref={dialog} className={'au-assistant'+(expanded?' expanded':'')} aria-label="Aurora AI" onCancel={e=>{e.preventDefault();hide();}} onClose={()=>setOpen(false)}>
+ <header className="au-agent-header"><span className="au-agent-mark"><Icon name="Mails" size={21}/></span><div><strong>Aurora AI</strong><small>Your intelligent email assistant</small></div><nav><button aria-label="Privasi & akses" onClick={()=>setPrivacy(!privacy)}>i</button><button aria-label="Minimalkan asisten" onClick={hide}>−</button><button aria-label={expanded?'Perkecil asisten':'Perbesar asisten'} onClick={()=>setExpanded(!expanded)}><Icon name={expanded?'Minimize':'Maximize'} size={16}/></button><button aria-label="Tutup asisten" onClick={hide}><Icon name="X" size={18}/></button></nav></header>
+ {privacy?<section className="au-agent-privacy"><h3>Privasi & akses</h3><p>Tujuan AI: {settings?.ai.endpoint||'Belum dikonfigurasi'}</p><label><input type="checkbox" checked={session?.consent||false} disabled={!session||!ready} onChange={e=>void agent.access(e.target.checked,session?.accounts||[])}/>Setuju mengirim percakapan ke penyedia AI</label><p>Pilih akun untuk tindakan Gmail. Isi pesan tetap lokal sampai kutipannya disetujui terpisah.</p>{accounts.filter(a=>a.provider==='google').map(a=><label key={a.id}><input type="checkbox" aria-label={'Izinkan '+a.email} disabled={!session} checked={session?.accounts.includes(a.id)||false} onChange={e=>void agent.access(session?.consent||false,e.target.checked?[...(session?.accounts||[]),a.id]:(session?.accounts||[]).filter(id=>id!==a.id))}/>{a.email}</label>)}<p>Sesi disimpan di memori hingga aplikasi ditutup atau sesi kedaluwarsa. JSON rencana bukan jadwal aktif. Pengiriman otomatis belum tersedia.</p><button disabled={busy} onClick={()=>{if(confirm('Hapus percakapan, draf asisten dan izin sesi? Draf Compose serta rencana tersimpan tidak dihapus.'))void agent.clear();}}>Hapus percakapan</button><button onClick={()=>setPrivacy(false)}>Selesai</button></section>:<>
+ <div className="au-assistant-scroll" ref={scroll} onScroll={e=>{const el=e.currentTarget;nearBottom.current=el.scrollHeight-el.scrollTop-el.clientHeight<80;if(nearBottom.current)setUnread(false);}}>
+ {!session?.messages.length&&<section className="au-agent-welcome"><span>Halo, ada yang bisa dibantu?</span><p>Ngobrol, susun email, atau temukan pesan. Kamu tetap memegang keputusan.</p><div className="au-agent-quick"><button disabled={busy||!session?.consent} onClick={()=>void chat('Bantu saya membuat email baru. Tanyakan detail yang belum ada.')}>Buat email</button><button disabled={busy||!session?.consent} onClick={()=>session?.accounts.length?void chat('Bantu cari email. Tanyakan pengirim atau kata pencarian.'):setPrivacy(true)}>Cari email</button><button disabled={busy||!session||!selected} onClick={()=>{if(selected&&!session?.accounts.includes(selected.account_id)){setPrivacy(true);return;}if(selected)void agent.access(session!.consent,session!.accounts,selected).then(s=>{if(s)void agent.action({kind:'read_message',...selected});});}}>Ringkas pesan terpilih</button><button disabled={busy||!session} onClick={()=>session?.accounts.length?void agent.action({kind:'list_schedule_proposals'}):setPrivacy(true)}>Lihat rencana</button></div></section>}
+ <div role="log" aria-label="Percakapan" aria-live="polite">{session?.messages.map((m,i)=><div key={i} className={'au-agent-entry '+m.role}>{m.role!=='operation'&&<><small>{m.role==='user'?'Anda':'Aurora'}</small><p>{m.text}</p></>}{m.cards.map((card,j)=><AssistantCard key={j} card={card} accounts={accounts} busy={busy} action={agent.action}/>)}</div>)}</div>
+ {session?.history_trimmed&&<p className="au-agent-note">Pesan lama tidak disertakan ke AI. Draf aktif tetap tersedia.</p>}
+ {session?.draft&&<ActiveDraft key={session.draft.account_id+JSON.stringify(session.draft.draft)} email={session.draft} accounts={accounts} busy={busy} action={agent.action} compose={compose}/>}
+ {pending.map(p=><ActionReview key={p.id} pending={p} accounts={accounts} busy={busy} endpoint={settings?.ai.endpoint||''} confirm={()=>void agent.confirm(p.id)} cancel={()=>void agent.action({kind:'cancel_pending'})}/>)}
+ {error&&<p className="au-agent-error" role="alert">{error}</p>}
+ {!session&&!busy&&<button onClick={()=>void agent.open()}>Mulai sesi baru</button>}
+ </div>
+ {unread&&<button className="au-agent-new" onClick={()=>{nearBottom.current=true;scroll.current?.scrollTo({top:scroll.current.scrollHeight});setUnread(false);}}>Pesan baru</button>}
+ <footer className="au-agent-input">
+ {busy&&<div className="au-agent-processing" aria-busy="true" role="status"><span className="au-agent-dots" aria-hidden="true"><span/><span/><span/></span><span>{agent.thinking?'Aurora sedang menyiapkan jawaban…':'Memproses permintaan…'}</span></div>}
+ {!session?.consent&&<div className="au-agent-optin"><p>Percakapan dikirim ke {settings?.ai.endpoint||'penyedia AI yang dikonfigurasi'}. Biaya API dapat berlaku. Inbox dan lampiran tidak diunggah otomatis.</p><label><input type="checkbox" aria-label="Setuju mengirim percakapan ke penyedia AI" disabled={!session||!ready} checked={false} onChange={e=>void agent.access(e.target.checked,session?.accounts||[])}/>Setuju mengirim percakapan ke penyedia AI</label></div>}
+ {!ready&&<div><p role="status">{!settings?(settingsError?'Pengaturan AI gagal dimuat: '+settingsError:'Memuat pengaturan AI…'):!settings.ai.enabled?'AI belum aktif. Aktifkan di Pengaturan.':'API key belum tersedia. Tambahkan di Pengaturan.'}</p><button type="button" onClick={()=>{hide();openSettings();}}>Buka pengaturan AI</button></div>}
+ <form onSubmit={e=>{e.preventDefault();void chat();}}><textarea aria-label="Pesan ke asisten" placeholder="Tanya apa saja, atau minta bantuan email…" value={input} maxLength={8192} rows={2} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();void chat();}}}/>{agent.thinking?<button className="au-agent-primary" type="button" aria-label="Hentikan jawaban" title="Hentikan jawaban" onClick={agent.cancel}><span className="au-agent-stop" aria-hidden="true"/></button>:<button className="au-agent-primary" type="submit" aria-label="Kirim pesan" disabled={busy||!session?.consent||!input.trim()||!ready}><Icon name="Send" size={18}/></button>}</form><small>Enter untuk kirim · Shift+Enter baris baru</small>
+ </footer></>}
+ </dialog></>;
+}
